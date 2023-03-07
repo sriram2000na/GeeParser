@@ -1,15 +1,50 @@
 import re
 import sys
-import string
+
 
 debug = False
 dict = {}
-tokens = []
+stack = [{}]
+deleted = [{}]
+printing = {'bool': 'boolean', 'float': 'number'}
+
+
+def printOutput(msg=""):
+    global stack
+    global deleted
+    stack.extend(deleted)
+    stack = list(filter(None, stack))
+    with open('a.out', 'w') as f:
+        for scope in stack:
+            # print("scope: ", scope)
+            for key, val in scope.items():
+                # f.write(f'{key} {printing[val[1]]}\n')
+                print(f'{key} {printing[val[1]]}\n')
+        if (msg != ""):
+            error(msg)
+        # print(msg)
+        # f.write(msg)
+    sys.exit()
 
 
 class Statement(object):
     def __init__(self, statement):
         self.statement = statement
+
+    def solve(self):
+        # if self.statement.startswith('if'):
+        #     condition = self.statement.expression.solve()
+        #     if condition:
+        #         self.statement.ifblk.solve()
+        #     else:
+        #         self.statement.elseblk.solve()
+        # elif self.statement.startswith('while'):
+        #     pass
+        # else:
+        #     pass
+        return self.statement.solve()
+    # def getType(self):
+    #     return self.statement.getType()
 
     def __str__(self):
         return str(self.statement)+"\n"
@@ -19,6 +54,10 @@ class StatementList(object):
     def __init__(self, statements):
         self.statements = statements
 
+    def solve(self):
+        for statement in self.statements:
+            statement.solve()
+
     def __str__(self):
         res = ""
         for statement in self.statements:
@@ -27,27 +66,60 @@ class StatementList(object):
 
 
 class Block(object):
-    def __init__(self, statements):
-        self.statements = statements
+    def __init__(self, statementList):
+        self.stlist = statementList
+
+    def solve(self):
+        stack.append({})
+        self.stlist.solve()
+        deleted.append(stack[-1])
+        stack.pop()
+        return
 
     def __str__(self):
-        return str(self.statements)
+        return str(self.stlist)
 
 
 class Assignment(object):
-    def __init__(self, op, left, right, eoln=";"):
+    def __init__(self, op, left, right):
         self.op = op
         self.left = left
         self.right = right
-        self.eoln = eoln
+
+    def solve(self):
+        value = self.right.solve()
+        type = self.right.getType()
+        for scope in stack:
+            if self.left.name in scope:
+                if type != self.left.getType():
+                    # print('Type mismatch at: ', str(self))
+                    printOutput(
+                        msg=f'Type Error: {printing[self.left.getType()]} = {printing[type]}!')
+                    sys.exit()
+                scope[self.left.name] = value, scope[self.left.name][1]
+                return
+        stack[-1][self.left.name] = value, type
+
+    # def getType(self):
+    #     for scope in stack:
+    #         if self.left.name in scope:
+    #             return scope[self.left.name][1]
 
     def __str__(self):
-        return str(self.left) + " " + str(self.op) + " " + str(self.right)+self.eoln
+        return str(self.left) + " " + str(self.op) + " " + str(self.right)
 
+# class Factor():
+#     def __init__(self,tipe = None, value = None):
+#         self.value = value
+#         self.tipe = tipe
 #  Expression class and its subclasses
 
 
 class Expression(object):
+    def __init__(self, value=None, tipe=None):
+        self.value = value
+        self.tipe = tipe
+
     def __str__(self):
         return ""
 
@@ -58,6 +130,19 @@ class BinaryExpr(Expression):
         self.left = left
         self.right = right
 
+    def solve(self):
+        if self.left.getType() != self.right.getType():
+            # print('Types do not match for the expression', str(self))
+            printOutput(
+                msg=f'Type Error: {printing[self.left.getType()]} = {printing[self.right.getType()]}!')
+            sys.exit()
+        return eval(f'{self.left.solve()} {self.op} {self.right.solve()}')
+
+    def getType(self):
+        if self.op in ['==', '!=', '<=', '<', '>=', '>']:
+            return 'bool'
+        return self.left.getType()
+
     def __str__(self):
         return str(self.op) + " " + str(self.left) + " " + str(self.right)
 
@@ -66,13 +151,38 @@ class GeeString(Expression):
     def __init__(self, value):
         self.value = value
 
+    def solve(self):
+        return str(self.value)
+
+    def getType(self):
+        return 'string'
+
     def __str__(self):
         return str(f"Geestring: {self.value}")
 
 
 class Identifier(Expression):
-    def __init__(self, name):
+    def __init__(self,  name):
         self.name = name
+
+    def solve(self):
+        for i in stack:
+            if self.name in i:
+                return eval(f'{i[self.name][1]}({i[self.name][0]})')
+
+        printOutput(
+            msg=f'Type Error: {self.name} is referenced before being defined!')
+        # sys.exit()
+
+    def getType(self):
+        for i in stack:
+            if self.name in i:
+                return i[self.name][1]
+        printOutput(
+            msg=f'Type Error: {self.name} is referenced before being defined!')
+        # print(f'Value for variable {self.name} not in symbol table')
+        # sys.exit()
+        # return None
 
     def __str__(self):
         return str(self.name)
@@ -80,7 +190,13 @@ class Identifier(Expression):
 
 class Number(Expression):
     def __init__(self, value):
-        self.value = value
+        self.value = float(value)
+
+    def solve(self):
+        return self.value
+
+    def getType(self):
+        return 'float'
 
     def __str__(self):
         return str(self.value)
@@ -90,6 +206,11 @@ class WhileStmt():
     def __init__(self, expression, innerblk):
         self.expression = expression
         self.innerblk = innerblk
+
+    def solve(self):
+        while self.expression.solve():
+            self.innerblk.solve()
+        return
 
     def __str__(self):
         return "while" + " " + str(self.expression) + "\n" + str(self.innerblk) + "endwhile"
@@ -101,8 +222,16 @@ class IfStmt():
         self.ifblk = ifblk
         self.elseblk = elseblk
 
+    def solve(self):
+        condition = self.expression.solve()
+        if condition:
+            return self.ifblk.solve()
+        elif self.elseblk is not None:
+            return self.elseblk.solve()
+        return None
+
     def __str__(self):
-        return "if" + " " + str(self.expression) + "\n" + str(self.ifblk) + str(self.elseblk) + "endif"
+        return "if" + " " + str(self.expression) + "\n" + str(self.ifblk) + "else\n" + str(self.elseblk) + "endif"
 
 
 def error(msg):
@@ -126,11 +255,9 @@ def factor():
     """           = |   identifier """
     tok = tokens.peek()
     pos = tokens.position
-    # print(tokens, tok, tokens.position)
     if debug:
         print("Factor: ", tok)
     if tok is None:
-        # error("None")
         return None
     if re.match(Lexer.string, tok):
         expr = GeeString(tok)
@@ -181,11 +308,12 @@ def expression():
     tok = tokens.peek()
     if debug:
         print("expression:", tok)
-    left = andExpr()
+    left = andExpr()  # AST node
     tok = tokens.peek()
     while tok == Lexer.token_or:
         tokens.next()
-        right = andExpr()
+        right = andExpr()  # AST node
+        # complex AST node
         left = BinaryExpr(tok, left, right)
         tok = tokens.peek()
     if left is None:
@@ -202,7 +330,7 @@ def relationalExpr():
         print("relationalExpr: ", tok)
     left = addExpr()
     tok = tokens.peek()
-    if tok is not None and re.match(Lexer.relational, tok):
+    if tok is not None and (re.match(Lexer.relational, tok) or tok == '=='):
         matched_op = re.match(Lexer.relational, tok)
         tokens.next()
         right = addExpr()
@@ -266,7 +394,7 @@ def ifstmt():
         elseblk = Block("")
         if tokens.peek() == "else":
             tokens.next()
-            elseblk = Block("else\n"+str(block()))
+            elseblk = Block(block())
         if debug:
             print("IfStmt: ", str(IfStmt(expr, ifblk, elseblk)))
         return IfStmt(expr, ifblk, elseblk)
@@ -292,7 +420,7 @@ def whilestmt():
 
 
 def statement():
-    """ statement = (ifStatement |  whileStatement  |  assign )"""
+    """ statement = (ifStatement |  whileStatement  |  assign );"""
     pos = tokens.position
     tok = tokens.peek()
     left = (ifstmt() or whilestmt() or assignstatement())
@@ -306,15 +434,13 @@ def stmtlist():
     if len(tokens.tokens) == 0:
         return "\n"
     expr = ""
-    lastpos = tokens.position
-    statements = [expr]
+    statements = []
     while True:
         lastpos = tokens.position
         expr = statement()
         if expr is None:
             return StatementList(statements)
-        statements.append(str(expr))
-    return StatementList(["Oh my god!!!!"])
+        statements.append(expr)
 
 
 def addExpr():
@@ -353,28 +479,50 @@ def assignstatement():
             right = expression()
             if tokens.peek() == Lexer.eoln:
                 tokens.next()
-                return BinaryExpr(op, left, right)
+                return Assignment(op, Identifier(left), right)
     tokens.position = pos
     return None
 
 
 def parse(text):
     global tokens
+    global stack
     tokens = Lexer(text)
     # print(tokens)
-    # expr = assignstatement()
+    expr = parseStmtList()
+    # print(expr.statements[0].statement.expression.solve())
+    expr.solve()
     # expr = addExpr()
-    # expr = relationalExpr()
     # expr = andExpr()
     # expr = expression()
+    # if expr is not None:
+    # print(expr)
+    # print(expr.value, expr.tipe)
+    stack.extend(deleted)
+    stack = list(filter(None, stack))
+    print(stack)
+    # printOutput()
+    # print(stack)
+    # ans = {}
+    # for scope in stack:
+    #     for var in scope:
+    #         ans[var] = scope[var][0]
+    # print('{', end='', sep='')
+    # for idx in range(len(ans.items())):
+    #     key, val = list(ans.items())[idx]
+    #     print(f'<{key},{val}>', end='')
+    #     if idx != len(ans.items())-1:
+    #         print(', ', end='')
+    # print('}', end='', sep='')
+    # expr = relationalExpr()
     # print(str(expr))
     # expr = assignstatement()
     # print(str(expr))
     #     Or:
-    stmtlist = parseStmtList()
-    print(str(stmtlist))
-    if (tokens.position != len(tokens.tokens)):
-        error("Unsuccesful parse")
+    # stmtlist = parseStmtList()
+    # print(str(stmtlist))
+    # if (tokens.position != len(tokens.tokens)):
+    #     error("Unsuccesful parse")
     return
 
 
